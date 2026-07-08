@@ -46,7 +46,6 @@ env:
 jobs:
 
 # Build Job
- 
   build:
     name: Build React Application
     runs-on: ubuntu-latest
