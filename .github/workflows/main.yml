@@ -39,7 +39,7 @@ concurrency:
   
 env:
   NODE_VERSION: "22"
- IMAGE_NAME: IMAGE_NAME=vamsidevinedi/zomato
+ IMAGE_NAME: vamsidevinedi/zomato-docker
   IMAGE_TAG: ${{ github.sha }}
 
  
