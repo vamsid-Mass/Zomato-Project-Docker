@@ -178,8 +178,12 @@ jobs:
 # Gitleaks Secret Scan
   
 
-    - name: Run Gitleaks
-      uses: gitleaks/gitleaks-action@v2
+   - name: Run Gitleaks Scan
+  run: |
+    docker run --rm \
+      -v ${{ github.workspace }}:/path \
+      zricethezav/gitleaks:latest \
+      detect --source=/path
       env:
         GITHUB_TOKEN: ${{ secrets.GT }}
 
