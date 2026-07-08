@@ -147,3 +147,195 @@ jobs:
         path: build
 
 
+# Security Scan Job
+  
+
+  security:
+    name: Security & Docker Validation
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+
+  
+# Checkout Repository
+  
+
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+  
+# Download Build Artifact
+  
+
+    - name: Download React Build
+      uses: actions/download-artifact@v4
+      with:
+        name: react-build
+        path: build
+
+  
+# Gitleaks Secret Scan
+  
+
+    - name: Run Gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GT }}
+
+  
+# Trivy Filesystem Scan
+
+    - name: Run Trivy Filesystem Scan
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: fs
+        scan-ref: .
+        format: sarif
+        output: trivy-fs.sarif
+        severity: CRITICAL,HIGH
+        exit-code: 1
+        ignore-unfixed: true
+
+  
+# Upload Trivy SARIF
+  
+
+    - name: Upload Filesystem Scan
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: trivy-fs.sarif
+
+  
+# Hadolint Dockerfile Scan
+  
+
+    - name: Lint Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: Dockerfile
+        failure-threshold: warning
+
+  
+# Setup Docker Buildx
+  
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+  
+# Restore Docker Layer Cache
+  
+
+    - name: Restore Docker Cache
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+  
+# Build Docker Image
+  
+
+    - name: Build Docker Image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: Dockerfile
+        push: false
+
+        tags: |
+          ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          ${{ env.IMAGE_NAME }}:latest
+
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new
+
+        provenance: false
+
+        load: true
+
+        labels: |
+          org.opencontainers.image.title=Zomato
+          org.opencontainers.image.source=${{ github.repository }}
+          org.opencontainers.image.version=${{ github.sha }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.created=${{ github.run_id }}
+
+  
+# Move Docker Cache
+  
+    - name: Update Docker Cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+# Verify Docker Image
+  
+
+    - name: Verify Docker Image
+      run: |
+        docker images
+
+        docker image inspect \
+        ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+  
+# Validate Image Size
+  
+
+    - name: Validate Image Size
+      run: |
+
+        IMAGE_ID=$(docker images \
+        ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+        --format "{{.ID}}")
+
+        SIZE=$(docker image inspect $IMAGE_ID \
+        --format='{{.Size}}')
+
+        SIZE_MB=$((SIZE / 1024 / 1024))
+
+        echo "Docker Image Size : ${SIZE_MB} MB"
+
+        if [ "$SIZE_MB" -gt 500 ]; then
+          echo "Docker image exceeds 500 MB"
+          exit 1
+        fi
+
+  
+# Verify Container Starts
+  
+
+    - name: Smoke Test Container
+      run: |
+
+        docker run -d \
+        --name zomato-test \
+        -p 3000:3000 \
+        ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+
+        sleep 20
+
+        docker ps
+
+        docker logs zomato-test
+
+  
+# Cleanup Test Container
+  
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker rm -f zomato-test || true
+
+
+
